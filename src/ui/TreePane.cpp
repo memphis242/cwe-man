@@ -59,7 +59,7 @@ ftxui::Element RenderTreePane(AppState& state, bool focused) {
         lines.push_back(text(" Run :sync to fetch data.") | bold);
         auto w = window(text(" CWE Tree ") | bold,
                         vbox(std::move(lines)) | flex);
-        return focused ? (w | color(Color::Cyan)) : (w | dim);
+        return focused ? w : (w | dim);
     }
 
     for (int i = 0; i < static_cast<int>(state.visible_nodes.size()); ++i) {
@@ -92,7 +92,7 @@ ftxui::Element RenderTreePane(AppState& state, bool focused) {
     auto title = text(" CWE Tree ") | bold;
     auto w = window(title,
                     vbox(std::move(lines)) | vscroll_indicator | yframe | flex);
-    return focused ? (w | color(Color::Cyan)) : w;
+    return focused ? w : (w | dim);
 }
 
 } // namespace cweman

@@ -18,7 +18,7 @@ ftxui::Element RenderDetailPane(AppState& state, int& scroll_pos, bool focused) 
             text(" Select a CWE from the tree and") | dim,
             text(" press 'o' or 'l' to view.") | dim,
         }) | flex);
-        return focused ? (w | color(Color::Cyan)) : w;
+        return focused ? w : (w | dim);
     }
 
     const auto& cwe = *state.active_cwe;
@@ -140,7 +140,7 @@ ftxui::Element RenderDetailPane(AppState& state, int& scroll_pos, bool focused) 
 
     auto title = text(std::format(" CWE-{} ", cwe.id)) | bold;
     auto w = window(title, vbox(std::move(visible)) | flex);
-    return focused ? (w | color(Color::Cyan)) : w;
+    return focused ? w : (w | dim);
 }
 
 } // namespace cweman
