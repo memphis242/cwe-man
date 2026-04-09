@@ -1,0 +1,29 @@
+# General build artifacts
+build/
+*.exe
+*.o
+*.lst
+*.log
+*.a
+*.lib
+*.dll
+*.so
+
+# Certain source files I don't want committed
+leetcode.c
+
+# VSCode
+.vscode/
+
+# Unit Test
+*.gcda
+*.gcno
+*.gcov
+
+# Vim
+*.swp
+*.vim
+tags
+
+# Claude Code
+.claude/
