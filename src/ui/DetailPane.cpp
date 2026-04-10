@@ -3,9 +3,52 @@
 #include <algorithm>
 #include <format>
 
+#include <sys/ioctl.h>
+#include <unistd.h>
+
 #include <ftxui/dom/elements.hpp>
+#include "logging/Logger.hpp"
 
 namespace cweman {
+
+namespace {
+
+// Word-wrap a string into individual lines of at most `width` characters.
+// Breaks at word boundaries when possible.
+std::vector<std::string> wrap_text(const std::string& input, int width) {
+    std::vector<std::string> lines;
+    if (width <= 0 || input.empty()) {
+        lines.push_back(input);
+        return lines;
+    }
+
+    std::string remaining = input;
+    while (!remaining.empty()) {
+        if (static_cast<int>(remaining.size()) <= width) {
+            lines.push_back(remaining);
+            break;
+        }
+
+        // Find last space within width
+        int break_at = width;
+        for (int i = width; i > 0; --i) {
+            if (remaining[i] == ' ') {
+                break_at = i;
+                break;
+            }
+        }
+
+        lines.push_back(remaining.substr(0, break_at));
+        // Skip the space at the break point
+        size_t next = break_at;
+        if (next < remaining.size() && remaining[next] == ' ') ++next;
+        remaining = remaining.substr(next);
+    }
+
+    return lines;
+}
+
+} // namespace
 
 ftxui::Element RenderDetailPane(AppState& state, int& scroll_pos, bool focused) {
     using namespace ftxui;
@@ -21,11 +64,25 @@ ftxui::Element RenderDetailPane(AppState& state, int& scroll_pos, bool focused) 
         return focused ? w : (w | dim);
     }
 
+    // Compute available text width from terminal size
+    struct winsize ws{};
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws);
+    int term_width = ws.ws_col > 0 ? ws.ws_col : 80;
+    int pane_width = term_width - (state.tree_visible ? 42 : 0);
+    int text_width = std::max(20, pane_width - 4); // subtract window border + padding
+
     const auto& cwe = *state.active_cwe;
     Elements content;
 
     auto add_line = [&](Element el) {
         content.push_back(el);
+    };
+
+    // Word-wrap a string and add each line as a text() element
+    auto add_wrapped = [&](const std::string& str) {
+        for (const auto& line : wrap_text(str, text_width)) {
+            add_line(text(line));
+        }
     };
 
     // Header
@@ -49,14 +106,14 @@ ftxui::Element RenderDetailPane(AppState& state, int& scroll_pos, bool focused) 
     if (!cwe.description.empty()) {
         add_line(text(""));
         add_line(text(" Description") | bold | underlined);
-        add_line(paragraph(" " + cwe.description));
+        add_wrapped(" " + cwe.description);
     }
 
     // Extended description
     if (!cwe.extended_description.empty()) {
         add_line(text(""));
         add_line(text(" Extended Description") | bold | underlined);
-        add_line(paragraph(" " + cwe.extended_description));
+        add_wrapped(" " + cwe.extended_description);
     }
 
     // Consequences
@@ -75,10 +132,10 @@ ftxui::Element RenderDetailPane(AppState& state, int& scroll_pos, bool focused) 
                 if (!impact_str.empty()) impact_str += ", ";
                 impact_str += s;
             }
-            add_line(hbox({text("  Scope: ") | bold, text(scope_str) | flex}));
-            add_line(hbox({text("  Impact: ") | bold, text(impact_str) | flex}));
+            add_line(hbox({text("  Scope: ") | bold, text(scope_str)}));
+            add_line(hbox({text("  Impact: ") | bold, text(impact_str)}));
             if (!con.note.empty()) {
-                add_line(paragraph("  " + con.note));
+                add_wrapped("  " + con.note);
             }
             if (ci + 1 < cwe.consequences.size()) {
                 add_line(text(""));
@@ -99,7 +156,7 @@ ftxui::Element RenderDetailPane(AppState& state, int& scroll_pos, bool focused) 
                 add_line(hbox({text("  Strategy: ") | bold, text(mit.strategy)}));
             }
             if (!mit.description.empty()) {
-                add_line(paragraph("  " + mit.description));
+                add_wrapped("  " + mit.description);
             }
             if (mi + 1 < cwe.mitigations.size()) {
                 add_line(separatorLight());
@@ -116,7 +173,7 @@ ftxui::Element RenderDetailPane(AppState& state, int& scroll_pos, bool focused) 
             if (!ids.empty()) ids += ", ";
             ids += std::format("CWE-{}", rid);
         }
-        add_line(paragraph("  " + ids));
+        add_wrapped("  " + ids);
     }
 
     // URL
@@ -125,11 +182,10 @@ ftxui::Element RenderDetailPane(AppState& state, int& scroll_pos, bool focused) 
         add_line(hbox({text(" URL: ") | bold, text(cwe.url) | underlined}));
     }
 
-    add_line(text(""));
-    add_line(text(" q: close | a: tree | j/k: scroll | g/G: top/bottom") | dim);
-
-    // Clamp scroll_pos in place so callers can't over-scroll
-    int max_scroll = std::max(0, static_cast<int>(content.size()) - 1);
+    // Compute max scroll: allow scrolling until last line is at bottom of pane
+    int term_height = ws.ws_row > 0 ? ws.ws_row : 24;
+    int visible_lines = std::max(1, term_height - 5); // border(2) + footer(1) + status bar(1) + margin(1)
+    int max_scroll = std::max(0, static_cast<int>(content.size()) - visible_lines);
     scroll_pos = std::clamp(scroll_pos, 0, max_scroll);
 
     // Build scrolled view by dropping lines before scroll_pos
@@ -138,8 +194,10 @@ ftxui::Element RenderDetailPane(AppState& state, int& scroll_pos, bool focused) 
         visible.push_back(std::move(content[i]));
     }
 
+    auto footer = text(" q: close | a: tree | j/k: scroll | g/G: top/bottom") | dim;
+
     auto title = text(std::format(" CWE-{} ", cwe.id)) | bold;
-    auto w = window(title, vbox(std::move(visible)) | flex);
+    auto w = window(title, vbox({vbox(std::move(visible)) | flex, footer}));
     return focused ? w : (w | dim);
 }
 
