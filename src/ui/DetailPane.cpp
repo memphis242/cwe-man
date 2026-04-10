@@ -7,14 +7,13 @@
 #include <unistd.h>
 
 #include <ftxui/dom/elements.hpp>
-#include "logging/Logger.hpp"
 
 namespace cweman {
 
 namespace {
 
 // Word-wrap a string into individual lines of at most `width` characters.
-// Breaks at word boundaries when possible.
+// Breaks at word boundaries. Preserves leading whitespace on all lines.
 std::vector<std::string> wrap_text(const std::string& input, int width) {
     std::vector<std::string> lines;
     if (width <= 0 || input.empty()) {
@@ -22,23 +21,36 @@ std::vector<std::string> wrap_text(const std::string& input, int width) {
         return lines;
     }
 
-    std::string remaining = input;
+    // Extract leading whitespace
+    size_t first_non_space = input.find_first_not_of(' ');
+    std::string indent;
+    std::string text_content;
+    if (first_non_space == std::string::npos) {
+        indent = input;
+        text_content = "";
+    } else {
+        indent = input.substr(0, first_non_space);
+        text_content = input.substr(first_non_space);
+    }
+
+    std::string remaining = text_content;
     while (!remaining.empty()) {
-        if (static_cast<int>(remaining.size()) <= width) {
-            lines.push_back(remaining);
+        if (static_cast<int>(remaining.size()) <= width - static_cast<int>(indent.size())) {
+            lines.push_back(indent + remaining);
             break;
         }
 
-        // Find last space within width
-        int break_at = width;
-        for (int i = width; i > 0; --i) {
+        // Find last space within available width (accounting for indent)
+        int avail_width = width - static_cast<int>(indent.size());
+        int break_at = avail_width;
+        for (int i = avail_width; i > 0; --i) {
             if (remaining[i] == ' ') {
                 break_at = i;
                 break;
             }
         }
 
-        lines.push_back(remaining.substr(0, break_at));
+        lines.push_back(indent + remaining.substr(0, break_at));
         // Skip the space at the break point
         size_t next = break_at;
         if (next < remaining.size() && remaining[next] == ' ') ++next;
@@ -54,7 +66,7 @@ ftxui::Element RenderDetailPane(AppState& state, int& scroll_pos, bool focused) 
     using namespace ftxui;
 
     if (!state.active_cwe) {
-        auto w = window(text(" Detail ") | bold, vbox({
+        auto w = window(text(""), vbox({
             text(""),
             text(" No CWE selected.") | dim,
             text(""),
@@ -132,10 +144,14 @@ ftxui::Element RenderDetailPane(AppState& state, int& scroll_pos, bool focused) 
                 if (!impact_str.empty()) impact_str += ", ";
                 impact_str += s;
             }
-            add_line(hbox({text("  Scope: ") | bold, text(scope_str)}));
-            add_line(hbox({text("  Impact: ") | bold, text(impact_str)}));
+            if (!scope_str.empty()) {
+                add_line(hbox({text(" Scope:") | bold, paragraph(" " + scope_str) | flex}));
+            }
+            if (!impact_str.empty()) {
+                add_line(hbox({text(" Impact:") | bold, paragraph(" " + impact_str) | flex}));
+            }
             if (!con.note.empty()) {
-                add_wrapped("  " + con.note);
+                add_wrapped(" " + con.note);
             }
             if (ci + 1 < cwe.consequences.size()) {
                 add_line(text(""));
@@ -150,13 +166,13 @@ ftxui::Element RenderDetailPane(AppState& state, int& scroll_pos, bool focused) 
         for (size_t mi = 0; mi < cwe.mitigations.size(); ++mi) {
             const auto& mit = cwe.mitigations[mi];
             if (!mit.phase.empty()) {
-                add_line(hbox({text("  Phase: ") | bold, text(mit.phase)}));
+                add_line(hbox({text(" Phase: ") | bold, text(mit.phase)}));
             }
             if (!mit.strategy.empty()) {
-                add_line(hbox({text("  Strategy: ") | bold, text(mit.strategy)}));
+                add_line(hbox({text(" Strategy: ") | bold, text(mit.strategy)}));
             }
             if (!mit.description.empty()) {
-                add_wrapped("  " + mit.description);
+                add_wrapped(" " + mit.description);
             }
             if (mi + 1 < cwe.mitigations.size()) {
                 add_line(separatorLight());
@@ -173,7 +189,7 @@ ftxui::Element RenderDetailPane(AppState& state, int& scroll_pos, bool focused) 
             if (!ids.empty()) ids += ", ";
             ids += std::format("CWE-{}", rid);
         }
-        add_wrapped("  " + ids);
+        add_wrapped(" " + ids);
     }
 
     // URL
@@ -196,8 +212,7 @@ ftxui::Element RenderDetailPane(AppState& state, int& scroll_pos, bool focused) 
 
     auto footer = text(" q: close | a: tree | j/k: scroll | g/G: top/bottom") | dim;
 
-    auto title = text(std::format(" CWE-{} ", cwe.id)) | bold;
-    auto w = window(title, vbox({vbox(std::move(visible)) | flex, footer}));
+    auto w = window(text(""), vbox({vbox(std::move(visible)) | flex, footer}));
     return focused ? w : (w | dim);
 }
 
