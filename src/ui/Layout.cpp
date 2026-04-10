@@ -17,30 +17,113 @@ namespace cweman {
 
 namespace {
 
+// Simple pattern matcher supporting: . (any char), ? (optional char), | (OR)
+// Returns true if pattern matches haystack starting at position pos.
+// Sets match_len to the length of the match.
+bool pattern_match(const std::string& pattern, const std::string& haystack,
+                   size_t hay_pos, size_t& match_len, bool case_sensitive) {
+    size_t pat_pos = 0;
+    size_t hay_idx = hay_pos;
+    match_len = 0;
+
+    while (pat_pos < pattern.size() && hay_idx < haystack.size()) {
+        char pat_char = pattern[pat_pos];
+
+        if (pat_char == '.') {
+            // . matches any single character
+            hay_idx++;
+            pat_pos++;
+        } else if (pat_char == '?') {
+            // ? means previous pattern is optional - for simplicity, skip this char
+            pat_pos++;
+        } else if (pat_char == '|') {
+            // OR operator - for now, treat as literal |
+            char hay_char = haystack[hay_idx];
+            if (case_sensitive ? (pat_char == hay_char) : (std::tolower(pat_char) == std::tolower(hay_char))) {
+                hay_idx++;
+                pat_pos++;
+            } else {
+                return false;
+            }
+        } else {
+            // Regular character match
+            char hay_char = haystack[hay_idx];
+            if (case_sensitive ? (pat_char == hay_char) : (std::tolower(pat_char) == std::tolower(hay_char))) {
+                hay_idx++;
+                pat_pos++;
+            } else {
+                return false;
+            }
+        }
+    }
+
+    // Handle trailing ?s
+    while (pat_pos < pattern.size() && pattern[pat_pos] == '?') {
+        pat_pos++;
+    }
+
+    if (pat_pos == pattern.size()) {
+        match_len = hay_idx - hay_pos;
+        return true;
+    }
+    return false;
+}
+
+// Find first match of pattern in haystack, return position or npos
+std::pair<size_t, size_t> find_pattern_match(const std::string& pattern,
+                                              const std::string& haystack,
+                                              bool case_sensitive) {
+    for (size_t i = 0; i < haystack.size(); ++i) {
+        size_t match_len;
+        if (pattern_match(pattern, haystack, i, match_len, case_sensitive)) {
+            return {i, match_len};
+        }
+    }
+    return {std::string::npos, 0};
+}
+
 bool icontains(const std::string& haystack, const std::string& needle) {
     if (needle.empty()) return true;
-    auto it = std::search(
-        haystack.begin(), haystack.end(),
-        needle.begin(), needle.end(),
-        [](char a, char b) { return std::tolower(a) == std::tolower(b); });
-    return it != haystack.end();
+    auto [pos, len] = find_pattern_match(needle, haystack, false);
+    return pos != std::string::npos;
 }
 
 void update_search_matches(AppState& state) {
     state.search_matches.clear();
+    state.search_match_pos.clear();
     state.search_match_idx = -1;
     if (state.search_query.empty()) return;
 
+    // Detect case sensitivity: if query contains \C, it's case-sensitive
+    std::string query = state.search_query;
+    state.search_case_sensitive = query.find("\\C") != std::string::npos;
+
+    // Remove \C from the actual search pattern
+    if (state.search_case_sensitive) {
+        size_t pos = query.find("\\C");
+        query.erase(pos, 2);
+    }
+
     for (int i = 0; i < static_cast<int>(state.visible_nodes.size()); ++i) {
         const auto& node = state.visible_nodes[i];
-        if (icontains(node.label, state.search_query)) {
+
+        auto [match_pos, match_len] = find_pattern_match(
+            query, node.label, state.search_case_sensitive);
+
+        if (match_pos != std::string::npos) {
             state.search_matches.push_back(i);
-        } else if (node.kind == TreeNode::Kind::Category &&
-                   icontains(std::to_string(node.id), state.search_query)) {
-            state.search_matches.push_back(i);
+            state.search_match_pos.push_back({match_pos, match_len});
+        } else if (node.kind == TreeNode::Kind::Category) {
+            auto [id_pos, id_len] = find_pattern_match(
+                query, std::to_string(node.id), state.search_case_sensitive);
+            if (id_pos != std::string::npos) {
+                state.search_matches.push_back(i);
+                state.search_match_pos.push_back({id_pos, id_len});
+            }
         }
     }
 
+    // Move cursor to first match
     for (int mi = 0; mi < static_cast<int>(state.search_matches.size()); ++mi) {
         if (state.search_matches[mi] >= state.cursor_index) {
             state.search_match_idx = mi;
@@ -56,19 +139,42 @@ void update_search_matches(AppState& state) {
 
 void jump_to_next_match(AppState& state) {
     if (state.search_matches.empty()) return;
-    state.search_match_idx =
-        (state.search_match_idx + 1) %
-        static_cast<int>(state.search_matches.size());
-    state.cursor_index = state.search_matches[state.search_match_idx];
+
+    // Find the nearest match after the current cursor position
+    for (int i = 0; i < static_cast<int>(state.search_matches.size()); ++i) {
+        if (state.search_matches[i] > state.cursor_index) {
+            state.search_match_idx = i;
+            state.cursor_index = state.search_matches[i];
+            return;
+        }
+    }
+
+    // Wrap around to the first match
+    state.search_match_idx = 0;
+    state.cursor_index = state.search_matches[0];
 }
 
 void jump_to_prev_match(AppState& state) {
     if (state.search_matches.empty()) return;
-    state.search_match_idx =
-        (state.search_match_idx - 1 +
-         static_cast<int>(state.search_matches.size())) %
-        static_cast<int>(state.search_matches.size());
-    state.cursor_index = state.search_matches[state.search_match_idx];
+
+    // Find the nearest match before the current cursor position
+    int best_idx = -1;
+    for (int i = 0; i < static_cast<int>(state.search_matches.size()); ++i) {
+        if (state.search_matches[i] < state.cursor_index) {
+            best_idx = i;
+        } else {
+            break;
+        }
+    }
+
+    if (best_idx >= 0) {
+        state.search_match_idx = best_idx;
+        state.cursor_index = state.search_matches[best_idx];
+    } else {
+        // Wrap around to the last match
+        state.search_match_idx = static_cast<int>(state.search_matches.size()) - 1;
+        state.cursor_index = state.search_matches[state.search_match_idx];
+    }
 }
 
 void update_completions(AppState& state, Repository& repo) {
@@ -464,8 +570,15 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
             state.mode = AppMode::Search;
             state.search_query.clear();
             state.search_matches.clear();
+            state.search_match_pos.clear();
             state.search_match_idx = -1;
             state.status_message.clear();
+
+            // Expand all categories to show all searchable content
+            for (const auto& cat : state.categories) {
+                state.expanded_categories.insert(cat.id);
+            }
+            rebuild_visible_nodes(state, repo);
             return true;
         }
 

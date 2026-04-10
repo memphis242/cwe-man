@@ -4,6 +4,7 @@
 
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace cweman {
@@ -36,8 +37,10 @@ struct AppState {
 
     // Search
     std::string search_query;
-    std::vector<int> search_matches;   // indices into visible_nodes
-    int search_match_idx{-1};          // current match in search_matches
+    bool search_case_sensitive{false};
+    std::vector<int> search_matches;      // indices into visible_nodes
+    std::vector<std::pair<size_t, size_t>> search_match_pos;  // (start, length) for each match
+    int search_match_idx{-1};             // current match in search_matches
 
     // Command
     std::string command_input;
