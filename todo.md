@@ -1,0 +1,12 @@
+# Features TODO
+- Filter of CWEs in Tree Pane
+- Line number tracker at bottom right of Detail Pane
+- Prefix counts for j/k
+- Major build-up of SW QA!!!
+- ':' commands for:
+   - exporting CWE database to pretty-formatted text file in cwd
+   - copy database to cwd
+   - printing configuration + last sync-time to a popup window
+   - printing REST API reminder
+- Automatic periodic syncing
+- Config file
