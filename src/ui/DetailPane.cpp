@@ -210,7 +210,13 @@ ftxui::Element RenderDetailPane(AppState& state, int& scroll_pos, bool focused) 
         visible.push_back(std::move(content[i]));
     }
 
-    auto footer = text(" q: close | h: tree | j/k: scroll | g/G: top/bottom") | dim;
+    // Footer with key hints on left and line number right-justified
+    std::string line_info = std::format("{}/{}", scroll_pos + 1, content.size());
+    auto footer = hbox({
+        text(" q: close | h/l: tree/detail | j/k: scroll | g/G: top/bottom") | dim,
+        text("") | flex,
+        text(line_info + " ") | dim,
+    });
 
     auto w = window(text(""), vbox({vbox(std::move(visible)) | flex, footer}));
     return focused ? w : (w | dim);
