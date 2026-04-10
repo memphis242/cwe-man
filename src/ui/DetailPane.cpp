@@ -210,7 +210,7 @@ ftxui::Element RenderDetailPane(AppState& state, int& scroll_pos, bool focused) 
         visible.push_back(std::move(content[i]));
     }
 
-    auto footer = text(" q: close | a: tree | j/k: scroll | g/G: top/bottom") | dim;
+    auto footer = text(" q: close | h: tree | j/k: scroll | g/G: top/bottom") | dim;
 
     auto w = window(text(""), vbox({vbox(std::move(visible)) | flex, footer}));
     return focused ? w : (w | dim);

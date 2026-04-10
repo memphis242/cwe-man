@@ -417,7 +417,7 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                 *detail_scroll = 0;
                 return true;
             }
-            if (event == Event::Character('a')) {
+            if (event == Event::Character('h')) {
                 state.mode = AppMode::Tree;  // keep active_cwe open
                 return true;
             }
@@ -457,7 +457,7 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                 if (on_command) on_command("q");
                 return true;
             }
-            if (event == Event::Character('d') && state.active_cwe) {
+            if (event == Event::Character('l') && state.active_cwe) {
                 state.mode = AppMode::Detail;
                 return true;
             }
