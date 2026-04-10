@@ -347,6 +347,10 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
         if (state.mode == AppMode::Tree && !state.visible_nodes.empty()) {
             int max_idx = static_cast<int>(state.visible_nodes.size()) - 1;
 
+            if (event == Event::Character('q')) {
+                if (on_command) on_command("q");
+                return true;
+            }
             if (event == Event::Character('d') && state.active_cwe) {
                 state.mode = AppMode::Detail;
                 return true;
