@@ -220,19 +220,28 @@ void Sync::write_sync_timestamp() {
     auto tt  = std::chrono::system_clock::to_time_t(now);
     char buf[32];
     std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S", std::localtime(&tt));
+    std::string ts = std::format("{} {}", buf, "CDT");
 
     std::ofstream f{path};
-    f << buf << '\n';
+    f << ts << '\n';
 
-    Logger::instance().info(std::format("Wrote sync timestamp: {}", buf));
+    Logger::instance().info(std::format("Wrote sync timestamp: {}", ts));
 }
 
 bool Sync::sync_needed(int max_age_days) {
     auto ts = read_sync_timestamp();
     if (ts.empty()) return true;
 
+    // Stored format: YYYY-MM-DDTHH:MM:SS TZ (e.g., CDT).
+    // Keep compatibility with older timestamps without a timezone suffix.
+    auto raw_ts = ts;
+    size_t space = raw_ts.find(' ');
+    if (space != std::string::npos) {
+        raw_ts = raw_ts.substr(0, space);
+    }
+
     std::tm tm{};
-    std::istringstream ss{ts};
+    std::istringstream ss{raw_ts};
     ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S");
     if (ss.fail()) return true;
 

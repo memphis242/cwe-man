@@ -12,6 +12,7 @@ namespace cweman {
 enum class AppMode {
     Tree,
     Detail,
+    Notification,
     Command,
     Search,
     Filter,
@@ -57,6 +58,18 @@ struct AppState {
 
     // Notifications
     std::vector<Notification> notifications;
+    int notification_index{0};
+
+    // Popup overlay (for command-driven info windows)
+    bool popup_visible{false};
+    std::string popup_title;
+    std::vector<std::string> popup_lines;
+    bool popup_solid_bg{false};
+
+    // Vim-style pending prefix count for list-like movement.
+    bool count_pending{false};
+    int  count_value{0};
+    std::string last_key_sequence;
 
     // Status line message
     std::string status_message;

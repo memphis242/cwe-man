@@ -6,6 +6,8 @@
 #include <cctype>
 #include <format>
 #include <memory>
+#include <sys/ioctl.h>
+#include <unistd.h>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/event.hpp>
@@ -86,6 +88,44 @@ bool icontains(const std::string& haystack, const std::string& needle) {
     if (needle.empty()) return true;
     auto [pos, len] = find_pattern_match(needle, haystack, false);
     return pos != std::string::npos;
+}
+
+int consume_count(AppState& state) {
+    if (!state.count_pending || state.count_value <= 0) {
+        state.count_pending = false;
+        state.count_value = 0;
+        return 1;
+    }
+    int n = state.count_value;
+    state.count_pending = false;
+    state.count_value = 0;
+    return n;
+}
+
+void clear_count(AppState& state) {
+    state.count_pending = false;
+    state.count_value = 0;
+}
+
+bool count_digit_event(const ftxui::Event& event, AppState& state) {
+    if (!event.is_character()) return false;
+    auto ch = event.character();
+    if (ch.size() != 1 || ch[0] < '0' || ch[0] > '9') return false;
+    char d = ch[0];
+    if (!state.count_pending && d == '0') return false;
+    state.count_pending = true;
+    state.count_value = state.count_value * 10 + (d - '0');
+    return true;
+}
+
+std::string notif_severity_label(NotificationSeverity sev) {
+    switch (sev) {
+        case NotificationSeverity::Info: return "INFO";
+        case NotificationSeverity::Warning: return "WARN";
+        case NotificationSeverity::Error: return "ERROR";
+        case NotificationSeverity::Critical: return "CRIT";
+    }
+    return "INFO";
 }
 
 void update_search_matches(AppState& state) {
@@ -226,7 +266,9 @@ void update_completions(AppState& state, Repository& repo) {
 
     auto input = state.command_input;
     if (input.find(' ') == std::string::npos) {
-        for (const auto& c : {"q", "quit", "sync", "cwe ", "print-cwes"}) {
+        for (const auto& c : {"q", "quit", "sync", "cwe ", "print-cwes",
+                              "show-config", "rest-api", "clear-runtime",
+                              "yes", "no"}) {
             std::string cmd{c};
             if (cmd.starts_with(input)) {
                 state.completions.push_back(cmd);
@@ -260,17 +302,56 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                              state.mode == AppMode::Search ||
                              state.mode == AppMode::Filter);
         bool detail_focused = (state.mode == AppMode::Detail);
+        bool notif_focused = (state.mode == AppMode::Notification);
 
         Element tree_el = RenderTreePane(state, tree_focused);
         Element detail_el = RenderDetailPane(state, *detail_scroll, detail_focused);
+        Element notif_el = text("");
+
+        if (state.notification_pane_visible) {
+            ftxui::Elements nlines;
+            if (state.notifications.empty()) {
+                nlines.push_back(text(" (no notifications)") | dim);
+            } else {
+                for (int i = 0; i < static_cast<int>(state.notifications.size()); ++i) {
+                    const auto& n = state.notifications[i];
+                    std::string read = n.read ? "[R]" : "[U]";
+                    std::string line_s = std::format(" {} {} {}", read,
+                                                     notif_severity_label(n.severity), n.message);
+                    auto line = text(line_s);
+                    if (n.read) line = line | dim;
+                    if (i == state.notification_index) line = line | inverted | focus;
+                    nlines.push_back(line);
+                }
+            }
+            auto title = text(" Notifications ") | bold;
+            auto nwin = window(title,
+                               vbox(std::move(nlines)) | vscroll_indicator | yframe | flex);
+            notif_el = notif_focused ? nwin : (nwin | dim);
+        }
 
         if (state.tree_visible) {
-            main_content = hbox({
-                tree_el | size(WIDTH, EQUAL, 42),
-                detail_el | flex,
-            });
+            if (state.notification_pane_visible) {
+                main_content = hbox({
+                    tree_el | size(WIDTH, EQUAL, 42),
+                    detail_el | flex,
+                    notif_el | size(WIDTH, EQUAL, 38),
+                });
+            } else {
+                main_content = hbox({
+                    tree_el | size(WIDTH, EQUAL, 42),
+                    detail_el | flex,
+                });
+            }
         } else {
-            main_content = detail_el | flex;
+            if (state.notification_pane_visible) {
+                main_content = hbox({
+                    detail_el | flex,
+                    notif_el | size(WIDTH, EQUAL, 38),
+                });
+            } else {
+                main_content = detail_el | flex;
+            }
         }
 
         // ── Bottom bar ──────────────────────────────────────────────
@@ -343,7 +424,7 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                 text(state.filter_query),
                 state.filter_navigation_active ? text("") : (text("_") | blink),
                 text(filter_info) | dim,
-                state.filter_navigation_active ? (text(" | nav: j/k/g/G/o | /: edit") | dim)
+                state.filter_navigation_active ? (text(" | nav: j/k/g/G/o/l | /: edit") | dim)
                                                : text(""),
             });
         } else if (!state.status_message.empty()) {
@@ -353,6 +434,7 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
             switch (state.mode) {
                 case AppMode::Tree:    mode_str = "TREE"; break;
                 case AppMode::Detail:  mode_str = "DETAIL"; break;
+                case AppMode::Notification: mode_str = "NOTIFICATIONS"; break;
                 case AppMode::Command: mode_str = "COMMAND"; break;
                 case AppMode::Search:  mode_str = "SEARCH"; break;
                 case AppMode::Filter:  mode_str = "FILTER"; break;
@@ -364,34 +446,148 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                     state.search_match_idx + 1,
                     state.search_matches.size());
             }
-            bottom_bar = text(" " + mode_str + extra + " | :q to quit")
+            std::string count_hint;
+            if (state.count_pending) {
+                count_hint = std::format(" | count: {}", state.count_value);
+            }
+            bottom_bar = text(" " + mode_str + extra + count_hint + " | :q to quit")
                          | dim | inverted;
         }
+        if (!state.last_key_sequence.empty()) {
+            bottom_bar = hbox({
+                bottom_bar | flex,
+                text(" " + state.last_key_sequence + " ") | dim,
+            });
+        }
 
-        return vbox({
+        Element base = vbox({
             main_content | flex,
             bottom_bar,
         });
+
+        if (state.popup_visible) {
+            Elements body;
+            for (const auto& line : state.popup_lines) {
+                body.push_back(text(" " + line));
+            }
+            if (body.empty()) body.push_back(text(" "));
+            Element popup_body = vbox(std::move(body)) | size(WIDTH, LESS_THAN, 120) | flex;
+            Element popup = window(text(" " + state.popup_title + " ") | bold, popup_body);
+            if (state.popup_solid_bg) {
+                struct winsize ws{};
+                ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws);
+                int term_width = ws.ws_col > 0 ? ws.ws_col : 120;
+                int popup_width = std::clamp((term_width * 65) / 100, 50, std::max(50, term_width - 4));
+                int inner_width = std::max(20, popup_width - 2);
+                int popup_height = std::max(8, static_cast<int>(state.popup_lines.size()) + 4);
+
+                auto fit_line = [&](const std::string& s) {
+                    if (static_cast<int>(s.size()) >= inner_width) {
+                        return s.substr(0, static_cast<size_t>(inner_width));
+                    }
+                    return s + std::string(static_cast<size_t>(inner_width - s.size()), ' ');
+                };
+
+                Elements bg_lines;
+                for (int i = 0; i < popup_height; ++i) {
+                    bg_lines.push_back(
+                        text(std::string(static_cast<size_t>(popup_width), ' '))
+                        | bgcolor(Color::Black));
+                }
+
+                Elements fg_lines;
+                fg_lines.push_back(
+                    text(" " + fit_line(" " + state.popup_title))
+                    | color(Color::White) | bgcolor(Color::Black) | ftxui::bold);
+                fg_lines.push_back(
+                    text(std::string(static_cast<size_t>(popup_width), ' '))
+                    | bgcolor(Color::Black));
+
+                if (state.popup_lines.empty()) {
+                    fg_lines.push_back(
+                        text(" " + std::string(static_cast<size_t>(inner_width), ' '))
+                        | bgcolor(Color::Black));
+                } else {
+                    for (const auto& line : state.popup_lines) {
+                        fg_lines.push_back(
+                            text(" " + fit_line(" " + line))
+                            | color(Color::White) | bgcolor(Color::Black));
+                    }
+                }
+
+                while (static_cast<int>(fg_lines.size()) < popup_height) {
+                    fg_lines.push_back(
+                        text(std::string(static_cast<size_t>(popup_width), ' '))
+                        | bgcolor(Color::Black));
+                }
+
+                popup = dbox({
+                    vbox(std::move(bg_lines)),
+                    vbox(std::move(fg_lines)),
+                }) | size(WIDTH, EQUAL, popup_width)
+                  | size(HEIGHT, EQUAL, popup_height)
+                  | bgcolor(Color::Black);
+            }
+            return dbox({
+                base,
+                vbox({filler(), hbox({filler(), popup | size(WIDTH, GREATER_THAN, 20), filler()}), filler()}),
+            });
+        }
+        return base;
     });
 
     component |= CatchEvent([&, detail_scroll](Event event) -> bool {
+        auto set_last_key = [&](const std::string& key) {
+            state.last_key_sequence = key;
+        };
+
         if (event.is_character()) {
             Logger::instance().debug(std::format(
                 "Event: char='{}' mode={}", event.character(),
                 static_cast<int>(state.mode)));
         }
+
+        // Popup overlays capture input until dismissed.
+        if (state.popup_visible) {
+            if (event == Event::Escape || event == Event::Character('q')) {
+                set_last_key(event == Event::Escape ? "Esc" : "q");
+                state.popup_visible = false;
+                state.popup_title.clear();
+                state.popup_lines.clear();
+                state.popup_solid_bg = false;
+                return true;
+            }
+            return true;
+        }
+
+        bool list_like_context =
+            (state.mode == AppMode::Tree) ||
+            (state.mode == AppMode::Detail) ||
+            (state.mode == AppMode::Notification) ||
+            (state.mode == AppMode::Filter && state.filter_navigation_active);
+        if (list_like_context && count_digit_event(event, state)) {
+            set_last_key(std::to_string(state.count_value));
+            return true;
+        }
+
         // ── Search mode ─────────────────────────────────────────────
         if (state.mode == AppMode::Search) {
+            clear_count(state);
             if (event == Event::Return) {
+                set_last_key("Enter");
                 state.mode = AppMode::Tree;
-                if (!state.search_matches.empty()) {
+                if (state.search_matches.empty()) {
+                    state.status_message = std::format("/{0}: no matches", state.search_query);
+                } else {
+                    int idx = std::max(0, state.search_match_idx) + 1;
                     state.status_message = std::format(
-                        "/{} ({} matches)", state.search_query,
-                        state.search_matches.size());
+                        "/{}: match {} of {}", state.search_query,
+                        idx, state.search_matches.size());
                 }
                 return true;
             }
             if (event == Event::Escape) {
+                set_last_key("Esc");
                 state.search_query.clear();
                 state.search_matches.clear();
                 state.search_match_idx = -1;
@@ -399,6 +595,7 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                 return true;
             }
             if (event == Event::Backspace) {
+                set_last_key("BS");
                 if (!state.search_query.empty()) {
                     state.search_query.pop_back();
                     update_search_matches(state);
@@ -408,6 +605,7 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
             if (event.is_character()) {
                 // "/" while in search mode with empty query switches to filter mode
                 if (event.character() == "/" && state.search_query.empty()) {
+                    set_last_key("//");
                     state.mode = AppMode::Filter;
                     state.filter_query.clear();
                     state.filter_matches.clear();
@@ -417,6 +615,7 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                     return true;
                 }
                 state.search_query += event.character();
+                set_last_key(event.character());
                 update_search_matches(state);
                 return true;
             }
@@ -426,6 +625,8 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
         // ── Filter mode ──────────────────────────────────────────────
         if (state.mode == AppMode::Filter) {
             if (event == Event::Return) {
+                set_last_key("Enter");
+                clear_count(state);
                 // Enter in filter mode: stay in filter mode
                 // If filter is empty, return to normal tree
                 if (state.filter_query.empty()) {
@@ -442,7 +643,19 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                 }
                 return true;
             }
+            if (event == Event::Character('q')) {
+                set_last_key("q");
+                clear_count(state);
+                state.filter_query.clear();
+                state.filter_matches.clear();
+                state.filter_active = false;
+                state.filter_navigation_active = false;
+                state.mode = AppMode::Tree;
+                return true;
+            }
             if (event == Event::Escape) {
+                set_last_key("Esc");
+                clear_count(state);
                 state.filter_query.clear();
                 state.filter_matches.clear();
                 state.filter_active = false;
@@ -451,6 +664,8 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                 return true;
             }
             if (event == Event::Backspace) {
+                set_last_key("BS");
+                clear_count(state);
                 if (!state.filter_navigation_active && !state.filter_query.empty()) {
                     state.filter_query.pop_back();
                     update_filter_matches(state, repo);
@@ -469,9 +684,12 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                             break;
                         }
                     }
-                    if (current_idx + 1 < static_cast<int>(state.filter_matches.size())) {
-                        state.cursor_index = state.filter_matches[current_idx + 1];
-                    }
+                    int count = consume_count(state);
+                    set_last_key(count > 1 ? std::format("{}j", count) : "j");
+                    int next_idx = std::min(
+                        current_idx + count,
+                        static_cast<int>(state.filter_matches.size()) - 1);
+                    state.cursor_index = state.filter_matches[next_idx];
                     return true;
                 }
                 if (event == Event::Character('k') || event == Event::ArrowUp) {
@@ -483,22 +701,29 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                             break;
                         }
                     }
-                    if (current_idx > 0) {
-                        state.cursor_index = state.filter_matches[current_idx - 1];
-                    }
+                    int count = consume_count(state);
+                    set_last_key(count > 1 ? std::format("{}k", count) : "k");
+                    int prev_idx = std::max(current_idx - count, 0);
+                    state.cursor_index = state.filter_matches[prev_idx];
                     return true;
                 }
                 if (event == Event::Character('g')) {
+                    set_last_key("g");
+                    clear_count(state);
                     // Go to first filtered match
                     state.cursor_index = state.filter_matches[0];
                     return true;
                 }
                 if (event == Event::Character('G')) {
+                    set_last_key("G");
+                    clear_count(state);
                     // Go to last filtered match
                     state.cursor_index = state.filter_matches[state.filter_matches.size() - 1];
                     return true;
                 }
                 if (event == Event::Character('o') || event == Event::Character('l')) {
+                    set_last_key(event == Event::Character('o') ? "o" : "l");
+                    clear_count(state);
                     // Open selected CWE
                     const auto& node = state.visible_nodes[state.cursor_index];
                     if (node.kind == TreeNode::Kind::Weakness) {
@@ -515,6 +740,8 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
 
             if (event.is_character()) {
                 if (event.character() == "/") {
+                    set_last_key("/");
+                    clear_count(state);
                     if (state.filter_navigation_active) {
                         state.filter_navigation_active = false;
                     } else {
@@ -526,9 +753,11 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                     return true;
                 }
                 if (state.filter_navigation_active) {
+                    clear_count(state);
                     return true;
                 }
                 state.filter_query += event.character();
+                set_last_key(event.character());
                 update_filter_matches(state, repo);
                 return true;
             }
@@ -537,7 +766,9 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
 
         // ── Command mode ────────────────────────────────────────────
         if (state.mode == AppMode::Command) {
+            clear_count(state);
             if (event == Event::Return) {
+                set_last_key("Enter");
                 if (state.completion_idx >= 0 &&
                     state.completion_idx < static_cast<int>(state.completions.size())) {
                     state.command_input = state.completions[state.completion_idx];
@@ -551,6 +782,7 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                 return true;
             }
             if (event == Event::Escape) {
+                set_last_key("Esc");
                 state.command_input.clear();
                 state.completions.clear();
                 state.completion_idx = -1;
@@ -578,6 +810,7 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                 return true;
             }
             if (event == Event::Backspace) {
+                set_last_key("BS");
                 if (!state.command_input.empty()) {
                     state.command_input.pop_back();
                     update_completions(state, repo);
@@ -585,6 +818,7 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                 return true;
             }
             if (event.is_character()) {
+                set_last_key(event.character());
                 state.command_input += event.character();
                 state.completion_idx = -1;
                 update_completions(state, repo);
@@ -596,45 +830,136 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
         // ── Detail mode ─────────────────────────────────────────────
         if (state.mode == AppMode::Detail) {
             if (event == Event::Character(':')) {
+                set_last_key(":");
+                clear_count(state);
                 state.mode = AppMode::Command;
                 state.command_input.clear();
                 state.status_message.clear();
                 return true;
             }
             if (event == Event::Character('q')) {
+                set_last_key("q");
+                clear_count(state);
                 state.mode = state.filter_active ? AppMode::Filter : AppMode::Tree;
                 state.active_cwe.reset();
                 *detail_scroll = 0;
                 return true;
             }
             if (event == Event::Character('h')) {
+                set_last_key("h");
+                clear_count(state);
                 state.mode = state.filter_active ? AppMode::Filter : AppMode::Tree;  // keep active_cwe open
                 return true;
             }
             if (event == Event::Character('j') || event == Event::ArrowDown) {
-                ++(*detail_scroll);
+                int count = consume_count(state);
+                set_last_key(count > 1 ? std::format("{}j", count) : "j");
+                *detail_scroll += count;
                 return true;
             }
             if (event == Event::Character('k') || event == Event::ArrowUp) {
-                *detail_scroll = std::max(0, *detail_scroll - 1);
+                int count = consume_count(state);
+                set_last_key(count > 1 ? std::format("{}k", count) : "k");
+                *detail_scroll = std::max(0, *detail_scroll - count);
                 return true;
             }
             if (event == Event::Character('G')) {
+                set_last_key("G");
+                clear_count(state);
                 *detail_scroll = 9999;
                 return true;
             }
             if (event == Event::Character('g')) {
+                set_last_key("g");
+                clear_count(state);
                 *detail_scroll = 0;
                 return true;
             }
             // Ctrl+D — page down
             if (event == Event::Special({4})) {
+                set_last_key("^D");
+                clear_count(state);
                 *detail_scroll += 15;
                 return true;
             }
             // Ctrl+U — page up
             if (event == Event::Special({21})) {
+                set_last_key("^U");
+                clear_count(state);
                 *detail_scroll = std::max(0, *detail_scroll - 15);
+                return true;
+            }
+        }
+
+        // ── Notification mode ───────────────────────────────────────
+        if (state.mode == AppMode::Notification) {
+            if (event == Event::Character(':')) {
+                set_last_key(":");
+                clear_count(state);
+                state.mode = AppMode::Command;
+                state.command_input.clear();
+                state.status_message.clear();
+                return true;
+            }
+            if (event == Event::Character('j') || event == Event::ArrowDown) {
+                if (!state.notifications.empty()) {
+                    int count = consume_count(state);
+                    set_last_key(count > 1 ? std::format("{}j", count) : "j");
+                    int max_idx = static_cast<int>(state.notifications.size()) - 1;
+                    state.notification_index = std::min(state.notification_index + count, max_idx);
+                } else {
+                    clear_count(state);
+                }
+                return true;
+            }
+            if (event == Event::Character('k') || event == Event::ArrowUp) {
+                if (!state.notifications.empty()) {
+                    int count = consume_count(state);
+                    set_last_key(count > 1 ? std::format("{}k", count) : "k");
+                    state.notification_index = std::max(0, state.notification_index - count);
+                } else {
+                    clear_count(state);
+                }
+                return true;
+            }
+            if (event == Event::Return) {
+                set_last_key("Enter");
+                clear_count(state);
+                if (!state.notifications.empty()) {
+                    auto n = state.notifications[state.notification_index];
+                    repo.set_notification_read(n.id, !n.read);
+                    state.notifications = repo.get_notifications();
+                    if (!state.notifications.empty()) {
+                        state.notification_index = std::clamp(
+                            state.notification_index, 0,
+                            static_cast<int>(state.notifications.size()) - 1);
+                    } else {
+                        state.notification_index = 0;
+                    }
+                }
+                return true;
+            }
+            if (event == Event::Character('d')) {
+                set_last_key("d");
+                clear_count(state);
+                if (!state.notifications.empty()) {
+                    auto n = state.notifications[state.notification_index];
+                    repo.delete_notification(n.id);
+                    state.notifications = repo.get_notifications();
+                    if (!state.notifications.empty()) {
+                        state.notification_index = std::clamp(
+                            state.notification_index, 0,
+                            static_cast<int>(state.notifications.size()) - 1);
+                    } else {
+                        state.notification_index = 0;
+                    }
+                }
+                return true;
+            }
+            if (event == Event::Escape || event == Event::Character('q')) {
+                set_last_key(event == Event::Escape ? "Esc" : "q");
+                clear_count(state);
+                state.mode = AppMode::Tree;
                 return true;
             }
         }
@@ -644,22 +969,32 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
             int max_idx = static_cast<int>(state.visible_nodes.size()) - 1;
 
             if (event == Event::Character('q')) {
+                set_last_key("q");
+                clear_count(state);
                 if (on_command) on_command("q");
                 return true;
             }
             if (event == Event::Character('l') && state.active_cwe) {
+                set_last_key("l");
+                clear_count(state);
                 state.mode = AppMode::Detail;
                 return true;
             }
             if (event == Event::Character('j') || event == Event::ArrowDown) {
-                state.cursor_index = std::min(state.cursor_index + 1, max_idx);
+                int count = consume_count(state);
+                set_last_key(count > 1 ? std::format("{}j", count) : "j");
+                state.cursor_index = std::min(state.cursor_index + count, max_idx);
                 return true;
             }
             if (event == Event::Character('k') || event == Event::ArrowUp) {
-                state.cursor_index = std::max(state.cursor_index - 1, 0);
+                int count = consume_count(state);
+                set_last_key(count > 1 ? std::format("{}k", count) : "k");
+                state.cursor_index = std::max(state.cursor_index - count, 0);
                 return true;
             }
             if (event == Event::Character('{')) {
+                set_last_key("{");
+                clear_count(state);
                 for (int i = state.cursor_index - 1; i >= 0; --i) {
                     if (state.visible_nodes[i].kind == TreeNode::Kind::Category) {
                         state.cursor_index = i;
@@ -669,6 +1004,8 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                 return true;
             }
             if (event == Event::Character('}')) {
+                set_last_key("}");
+                clear_count(state);
                 for (int i = state.cursor_index + 1; i <= max_idx; ++i) {
                     if (state.visible_nodes[i].kind == TreeNode::Kind::Category) {
                         state.cursor_index = i;
@@ -678,6 +1015,8 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                 return true;
             }
             if (event == Event::Character('o') || event == Event::Return) {
+                set_last_key(event == Event::Character('o') ? "o" : "Enter");
+                clear_count(state);
                 const auto& node = state.visible_nodes[state.cursor_index];
                 if (node.kind == TreeNode::Kind::Category) {
                     if (state.expanded_categories.contains(node.id))
@@ -696,6 +1035,8 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                 return true;
             }
             if (event == Event::Character('x')) {
+                set_last_key("x");
+                clear_count(state);
                 const auto& node = state.visible_nodes[state.cursor_index];
                 int cat_id = (node.kind == TreeNode::Kind::Category)
                                  ? node.id : node.category_id;
@@ -711,6 +1052,8 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                 return true;
             }
             if (event == Event::Character('h')) {
+                set_last_key("h");
+                clear_count(state);
                 const auto& node = state.visible_nodes[state.cursor_index];
                 if (node.kind == TreeNode::Kind::Category &&
                     state.expanded_categories.contains(node.id)) {
@@ -728,6 +1071,8 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                 return true;
             }
             if (event == Event::Character('l')) {
+                set_last_key("l");
+                clear_count(state);
                 const auto& node = state.visible_nodes[state.cursor_index];
                 if (node.kind == TreeNode::Kind::Category &&
                     !state.expanded_categories.contains(node.id)) {
@@ -744,11 +1089,31 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                 return true;
             }
             if (event == Event::Character('G')) {
+                set_last_key("G");
+                clear_count(state);
                 state.cursor_index = max_idx;
                 return true;
             }
             if (event == Event::Character('g')) {
+                set_last_key("g");
+                clear_count(state);
                 state.cursor_index = 0;
+                return true;
+            }
+            if (event == Event::Character('c')) {
+                set_last_key("c");
+                clear_count(state);
+                state.expanded_categories.clear();
+                rebuild_visible_nodes(state, repo);
+                return true;
+            }
+            if (event == Event::Character('e')) {
+                set_last_key("e");
+                clear_count(state);
+                for (const auto& cat : state.categories) {
+                    state.expanded_categories.insert(cat.id);
+                }
+                rebuild_visible_nodes(state, repo);
                 return true;
             }
         }
@@ -757,6 +1122,8 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
 
         // / — enter search mode
         if (event == Event::Character('/') && state.mode == AppMode::Tree) {
+            set_last_key("/");
+            clear_count(state);
             state.mode = AppMode::Search;
             state.search_query.clear();
             state.search_matches.clear();
@@ -774,17 +1141,24 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
 
         // n/N — cycle search matches
         if (event == Event::Character('n') && state.mode == AppMode::Tree) {
+            set_last_key("n");
+            clear_count(state);
             jump_to_next_match(state);
             return true;
         }
         if (event == Event::Character('N') && state.mode == AppMode::Tree) {
+            set_last_key("N");
+            clear_count(state);
             jump_to_prev_match(state);
             return true;
         }
 
         // : — enter command mode
         if (event == Event::Character(':') &&
-            (state.mode == AppMode::Tree || state.mode == AppMode::Detail)) {
+            (state.mode == AppMode::Tree || state.mode == AppMode::Detail ||
+             state.mode == AppMode::Notification)) {
+            set_last_key(":");
+            clear_count(state);
             state.mode = AppMode::Command;
             state.command_input.clear();
             state.status_message.clear();
@@ -793,26 +1167,50 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
 
         // Ctrl+T — toggle tree pane
         if (event == Event::CtrlT) {
+            set_last_key("^T");
+            clear_count(state);
             state.tree_visible = !state.tree_visible;
+            if (state.tree_visible) {
+                state.mode = AppMode::Tree;
+            }
             return true;
         }
 
-        // Ctrl+N — toggle notification pane (placeholder)
+        // Ctrl+N — toggle notification pane
         if (event == Event::CtrlN) {
+            set_last_key("^N");
+            clear_count(state);
             state.notification_pane_visible = !state.notification_pane_visible;
-            state.status_message = state.notification_pane_visible
-                ? "Notification pane (not yet implemented)"
-                : "";
+            if (state.notification_pane_visible) {
+                state.notifications = repo.get_notifications();
+                if (!state.notifications.empty()) {
+                    state.notification_index = std::clamp(
+                        state.notification_index, 0,
+                        static_cast<int>(state.notifications.size()) - 1);
+                } else {
+                    state.notification_index = 0;
+                }
+                state.mode = AppMode::Notification;
+                state.status_message.clear();
+            } else {
+                state.mode = AppMode::Tree;
+            }
             return true;
         }
 
         // ESC — context-dependent dismiss
         if (event == Event::Escape) {
+            set_last_key("Esc");
+            clear_count(state);
             state.status_message.clear();
             if (state.mode == AppMode::Detail) {
                 state.mode = state.filter_active ? AppMode::Filter : AppMode::Tree;
                 state.active_cwe.reset();
                 *detail_scroll = 0;
+                return true;
+            }
+            if (state.mode == AppMode::Notification) {
+                state.mode = AppMode::Tree;
                 return true;
             }
             return true;

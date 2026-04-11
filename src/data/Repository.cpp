@@ -301,7 +301,7 @@ std::vector<Notification> Repository::get_notifications() {
         else                       n.severity = NotificationSeverity::Info;
 
         // timestamp stored as ISO 8601; we don't parse it back for now
-        n.read = stmt.column_int(3) != 0;
+        n.read = stmt.column_int(4) != 0;
         result.push_back(std::move(n));
     }
     return result;
@@ -333,6 +333,13 @@ void Repository::insert_notification(const Notification& n) {
 void Repository::mark_notification_read(int64_t id) {
     auto stmt = db_.prepare("UPDATE notifications SET read = 1 WHERE id = ?");
     stmt.bind_int64(1, id);
+    stmt.execute();
+}
+
+void Repository::set_notification_read(int64_t id, bool read) {
+    auto stmt = db_.prepare("UPDATE notifications SET read = ? WHERE id = ?");
+    stmt.bind_int(1, read ? 1 : 0);
+    stmt.bind_int64(2, id);
     stmt.execute();
 }
 

@@ -35,6 +35,7 @@ public:
     std::vector<Notification> get_notifications();
     void insert_notification(const Notification& n);
     void mark_notification_read(int64_t id);
+    void set_notification_read(int64_t id, bool read);
     void delete_notification(int64_t id);
 
 private:
