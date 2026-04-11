@@ -62,6 +62,31 @@ ftxui::Element RenderTreePane(AppState& state, bool focused) {
         return focused ? w : (w | dim);
     }
 
+    // In active filter view, only show matching CWE entries.
+    if (state.filter_active) {
+        for (int i : state.filter_matches) {
+            const auto& node = state.visible_nodes[i];
+            if (node.kind != TreeNode::Kind::Weakness) continue;
+
+            std::string full_label = "    " + node.label;
+            auto line = text(full_label) | dim;
+            if (i == state.cursor_index) {
+                line = text(full_label) | inverted | focus;
+            }
+            lines.push_back(line);
+        }
+
+        if (lines.empty()) {
+            lines.push_back(text(" (no matches)") | dim);
+        }
+
+        auto title = text(" CWE Tree ") | bold;
+        auto w = window(title,
+                        vbox(std::move(lines)) | vscroll_indicator | yframe | flex);
+        return focused ? w : (w | dim);
+    }
+
+    // Normal tree rendering (not in filter mode)
     for (int i = 0; i < static_cast<int>(state.visible_nodes.size()); ++i) {
         const auto& node = state.visible_nodes[i];
         Element line;

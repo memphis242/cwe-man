@@ -24,6 +24,7 @@ public:
     std::vector<Cwe>       get_cwes_for_category(int category_id);
     std::optional<Cwe>     get_cwe(int id);
     std::vector<Cwe>       search_cwes(const std::string& query);
+    std::vector<CwePrintRow> get_cwes_for_print();
     void                   upsert_cwe(const Cwe& cwe);
     void                   link_cwe_category(int cwe_id, int category_id);
 

@@ -5,6 +5,7 @@
 #include "data/Repository.hpp"
 
 #include <atomic>
+#include <filesystem>
 #include <memory>
 
 #include <ftxui/component/screen_interactive.hpp>
@@ -20,6 +21,8 @@ private:
     std::filesystem::path data_dir() const;
     void load_data();
     void start_sync(ftxui::ScreenInteractive& screen);
+    bool print_cwes_markdown(const std::filesystem::path& path, int& written_rows,
+                             std::string& error);
 
     AppState                    state_;
     std::unique_ptr<Database>   db_;

@@ -197,6 +197,27 @@ std::vector<Cwe> Repository::search_cwes(const std::string& query) {
     return result;
 }
 
+std::vector<CwePrintRow> Repository::get_cwes_for_print() {
+    auto stmt = db_.prepare(
+        "SELECT cat.name, c.id, c.name, c.description, c.url "
+        "FROM categories cat "
+        "JOIN cwe_categories cc ON cat.id = cc.category_id "
+        "JOIN cwes c ON c.id = cc.cwe_id "
+        "ORDER BY cat.name COLLATE NOCASE, c.id");
+
+    std::vector<CwePrintRow> result;
+    while (stmt.step()) {
+        result.push_back({
+            .category_name = stmt.column_text(0),
+            .id            = stmt.column_int(1),
+            .name          = stmt.column_text(2),
+            .description   = stmt.column_text(3),
+            .url           = stmt.column_text(4),
+        });
+    }
+    return result;
+}
+
 void Repository::upsert_cwe(const Cwe& cwe) {
     // Serialize structured fields to JSON
     nlohmann::json cons_json = nlohmann::json::array();

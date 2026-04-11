@@ -14,6 +14,7 @@ enum class AppMode {
     Detail,
     Command,
     Search,
+    Filter,
 };
 
 struct AppState {
@@ -41,6 +42,13 @@ struct AppState {
     std::vector<int> search_matches;      // indices into visible_nodes
     std::vector<std::pair<size_t, size_t>> search_match_pos;  // (start, length) for each match
     int search_match_idx{-1};             // current match in search_matches
+
+    // Filter
+    std::string filter_query;
+    bool filter_case_sensitive{false};
+    std::vector<int> filter_matches;      // indices into all CWEs that match
+    bool filter_active{false};            // true while filtered tree view should stay active
+    bool filter_navigation_active{false}; // true after Enter in filter mode
 
     // Command
     std::string command_input;

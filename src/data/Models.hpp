@@ -42,6 +42,14 @@ struct Cwe {
     std::string url;
 };
 
+struct CwePrintRow {
+    std::string category_name;
+    int         id{};
+    std::string name;
+    std::string description;
+    std::string url;
+};
+
 enum class NotificationSeverity { Info, Warning, Error, Critical };
 
 struct Notification {

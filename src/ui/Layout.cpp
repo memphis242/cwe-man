@@ -177,13 +177,56 @@ void jump_to_prev_match(AppState& state) {
     }
 }
 
+void update_filter_matches(AppState& state, Repository& repo) {
+    state.filter_matches.clear();
+    if (state.filter_query.empty()) {
+        // When filter is empty, show all CWEs
+        for (int i = 0; i < static_cast<int>(state.visible_nodes.size()); ++i) {
+            if (state.visible_nodes[i].kind == TreeNode::Kind::Weakness) {
+                state.filter_matches.push_back(i);
+            }
+        }
+        return;
+    }
+
+    // Detect case sensitivity: if query contains \C, it's case-sensitive
+    std::string query = state.filter_query;
+    state.filter_case_sensitive = query.find("\\C") != std::string::npos;
+
+    // Remove \C from the actual filter pattern
+    if (state.filter_case_sensitive) {
+        size_t pos = query.find("\\C");
+        query.erase(pos, 2);
+    }
+
+    // Filter only CWE rows
+    for (int i = 0; i < static_cast<int>(state.visible_nodes.size()); ++i) {
+        const auto& node = state.visible_nodes[i];
+        if (node.kind != TreeNode::Kind::Weakness) continue;
+
+        auto [match_pos, match_len] = find_pattern_match(
+            query, node.label, state.filter_case_sensitive);
+
+        if (match_pos != std::string::npos) {
+            state.filter_matches.push_back(i);
+        } else {
+            // Also check CWE ID
+            auto [id_pos, id_len] = find_pattern_match(
+                query, std::to_string(node.id), state.filter_case_sensitive);
+            if (id_pos != std::string::npos) {
+                state.filter_matches.push_back(i);
+            }
+        }
+    }
+}
+
 void update_completions(AppState& state, Repository& repo) {
     state.completions.clear();
     state.completion_idx = -1;
 
     auto input = state.command_input;
     if (input.find(' ') == std::string::npos) {
-        for (const auto& c : {"q", "quit", "sync", "cwe "}) {
+        for (const auto& c : {"q", "quit", "sync", "cwe ", "print-cwes"}) {
             std::string cmd{c};
             if (cmd.starts_with(input)) {
                 state.completions.push_back(cmd);
@@ -214,7 +257,8 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
         Element main_content;
 
         bool tree_focused = (state.mode == AppMode::Tree ||
-                             state.mode == AppMode::Search);
+                             state.mode == AppMode::Search ||
+                             state.mode == AppMode::Filter);
         bool detail_focused = (state.mode == AppMode::Detail);
 
         Element tree_el = RenderTreePane(state, tree_focused);
@@ -279,6 +323,29 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                 text("_") | blink,
                 text(match_info) | dim,
             });
+        } else if (state.mode == AppMode::Filter) {
+            // Count total CWEs
+            int total_cwes = 0;
+            for (const auto& node : state.visible_nodes) {
+                if (node.kind == TreeNode::Kind::Weakness) {
+                    total_cwes++;
+                }
+            }
+            std::string filter_info;
+            if (!state.filter_query.empty()) {
+                filter_info = std::format(" ({}/{})",
+                    state.filter_matches.size(), total_cwes);
+            } else {
+                filter_info = std::format(" ({}/{})", total_cwes, total_cwes);
+            }
+            bottom_bar = hbox({
+                text("//") | bold,
+                text(state.filter_query),
+                state.filter_navigation_active ? text("") : (text("_") | blink),
+                text(filter_info) | dim,
+                state.filter_navigation_active ? (text(" | nav: j/k/g/G/o | /: edit") | dim)
+                                               : text(""),
+            });
         } else if (!state.status_message.empty()) {
             bottom_bar = text(" " + state.status_message) | dim;
         } else {
@@ -288,6 +355,7 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                 case AppMode::Detail:  mode_str = "DETAIL"; break;
                 case AppMode::Command: mode_str = "COMMAND"; break;
                 case AppMode::Search:  mode_str = "SEARCH"; break;
+                case AppMode::Filter:  mode_str = "FILTER"; break;
             }
             std::string extra;
             if (!state.search_matches.empty() &&
@@ -338,8 +406,130 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                 return true;
             }
             if (event.is_character()) {
+                // "/" while in search mode with empty query switches to filter mode
+                if (event.character() == "/" && state.search_query.empty()) {
+                    state.mode = AppMode::Filter;
+                    state.filter_query.clear();
+                    state.filter_matches.clear();
+                    state.filter_active = true;
+                    state.filter_navigation_active = false;
+                    update_filter_matches(state, repo);
+                    return true;
+                }
                 state.search_query += event.character();
                 update_search_matches(state);
+                return true;
+            }
+            return true;
+        }
+
+        // ── Filter mode ──────────────────────────────────────────────
+        if (state.mode == AppMode::Filter) {
+            if (event == Event::Return) {
+                // Enter in filter mode: stay in filter mode
+                // If filter is empty, return to normal tree
+                if (state.filter_query.empty()) {
+                    state.filter_matches.clear();
+                    state.filter_active = false;
+                    state.filter_navigation_active = false;
+                    state.mode = AppMode::Tree;
+                } else {
+                    // Non-empty filter: move cursor to first match
+                    state.filter_navigation_active = true;
+                    if (!state.filter_matches.empty()) {
+                        state.cursor_index = state.filter_matches[0];
+                    }
+                }
+                return true;
+            }
+            if (event == Event::Escape) {
+                state.filter_query.clear();
+                state.filter_matches.clear();
+                state.filter_active = false;
+                state.filter_navigation_active = false;
+                state.mode = AppMode::Tree;
+                return true;
+            }
+            if (event == Event::Backspace) {
+                if (!state.filter_navigation_active && !state.filter_query.empty()) {
+                    state.filter_query.pop_back();
+                    update_filter_matches(state, repo);
+                }
+                return true;
+            }
+
+            // Navigation keys in filter mode (after Enter)
+            if (state.filter_navigation_active && !state.filter_matches.empty()) {
+                if (event == Event::Character('j') || event == Event::ArrowDown) {
+                    // Move to next filtered match
+                    int current_idx = 0;
+                    for (int i = 0; i < static_cast<int>(state.filter_matches.size()); ++i) {
+                        if (state.filter_matches[i] == state.cursor_index) {
+                            current_idx = i;
+                            break;
+                        }
+                    }
+                    if (current_idx + 1 < static_cast<int>(state.filter_matches.size())) {
+                        state.cursor_index = state.filter_matches[current_idx + 1];
+                    }
+                    return true;
+                }
+                if (event == Event::Character('k') || event == Event::ArrowUp) {
+                    // Move to previous filtered match
+                    int current_idx = 0;
+                    for (int i = 0; i < static_cast<int>(state.filter_matches.size()); ++i) {
+                        if (state.filter_matches[i] == state.cursor_index) {
+                            current_idx = i;
+                            break;
+                        }
+                    }
+                    if (current_idx > 0) {
+                        state.cursor_index = state.filter_matches[current_idx - 1];
+                    }
+                    return true;
+                }
+                if (event == Event::Character('g')) {
+                    // Go to first filtered match
+                    state.cursor_index = state.filter_matches[0];
+                    return true;
+                }
+                if (event == Event::Character('G')) {
+                    // Go to last filtered match
+                    state.cursor_index = state.filter_matches[state.filter_matches.size() - 1];
+                    return true;
+                }
+                if (event == Event::Character('o') || event == Event::Character('l')) {
+                    // Open selected CWE
+                    const auto& node = state.visible_nodes[state.cursor_index];
+                    if (node.kind == TreeNode::Kind::Weakness) {
+                        auto cwe = repo.get_cwe(node.id);
+                        if (cwe) {
+                            state.active_cwe = std::move(*cwe);
+                            state.mode = AppMode::Detail;
+                            *detail_scroll = 0;
+                        }
+                    }
+                    return true;
+                }
+            }
+
+            if (event.is_character()) {
+                if (event.character() == "/") {
+                    if (state.filter_navigation_active) {
+                        state.filter_navigation_active = false;
+                    } else {
+                        state.filter_query.clear();
+                        state.filter_matches.clear();
+                        state.filter_active = false;
+                        state.mode = AppMode::Tree;
+                    }
+                    return true;
+                }
+                if (state.filter_navigation_active) {
+                    return true;
+                }
+                state.filter_query += event.character();
+                update_filter_matches(state, repo);
                 return true;
             }
             return true;
@@ -412,13 +602,13 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                 return true;
             }
             if (event == Event::Character('q')) {
-                state.mode = AppMode::Tree;
+                state.mode = state.filter_active ? AppMode::Filter : AppMode::Tree;
                 state.active_cwe.reset();
                 *detail_scroll = 0;
                 return true;
             }
             if (event == Event::Character('h')) {
-                state.mode = AppMode::Tree;  // keep active_cwe open
+                state.mode = state.filter_active ? AppMode::Filter : AppMode::Tree;  // keep active_cwe open
                 return true;
             }
             if (event == Event::Character('j') || event == Event::ArrowDown) {
@@ -620,7 +810,7 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
         if (event == Event::Escape) {
             state.status_message.clear();
             if (state.mode == AppMode::Detail) {
-                state.mode = AppMode::Tree;
+                state.mode = state.filter_active ? AppMode::Filter : AppMode::Tree;
                 state.active_cwe.reset();
                 *detail_scroll = 0;
                 return true;
