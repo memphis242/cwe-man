@@ -479,9 +479,14 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
         return base;
     });
 
-    component |= CatchEvent([&, detail_scroll](Event event) -> bool {
+    component |= CatchEvent([&, detail_scroll, on_command](Event event) -> bool {
         auto set_last_key = [&](const std::string& key) {
             state.last_key_sequence = key;
+        };
+        auto is_char = [&](char c) {
+            return event.is_character() &&
+                   event.character().size() == 1 &&
+                   event.character()[0] == c;
         };
 
         if (event.is_character()) {
@@ -492,7 +497,7 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
 
         // Popup overlays capture input until dismissed.
         if (state.popup_visible) {
-            if (event == Event::Escape || event == Event::Character('q')) {
+            if (event == Event::Escape || is_char('q')) {
                 set_last_key(event == Event::Escape ? "Esc" : "q");
                 state.popup_visible = false;
                 state.popup_title.clear();
@@ -586,7 +591,7 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                 }
                 return true;
             }
-            if (event == Event::Character('q')) {
+            if (is_char('q')) {
                 set_last_key("q");
                 clear_count(state);
                 state.filter_query.clear();
@@ -772,7 +777,7 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
 
         // ── Detail mode ─────────────────────────────────────────────
         if (state.mode == AppMode::Detail) {
-            if (event == Event::Character(':')) {
+            if (is_char(':')) {
                 set_last_key(":");
                 clear_count(state);
                 state.mode = AppMode::Command;
@@ -780,7 +785,7 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                 state.status_message.clear();
                 return true;
             }
-            if (event == Event::Character('q')) {
+            if (is_char('q')) {
                 set_last_key("q");
                 clear_count(state);
                 state.mode = state.filter_active ? AppMode::Filter : AppMode::Tree;
@@ -836,7 +841,7 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
 
         // ── Notification mode ───────────────────────────────────────
         if (state.mode == AppMode::Notification) {
-            if (event == Event::Character(':')) {
+            if (is_char(':')) {
                 set_last_key(":");
                 clear_count(state);
                 state.mode = AppMode::Command;
@@ -899,7 +904,7 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                 }
                 return true;
             }
-            if (event == Event::Escape || event == Event::Character('q')) {
+            if (event == Event::Escape || is_char('q')) {
                 set_last_key(event == Event::Escape ? "Esc" : "q");
                 clear_count(state);
                 state.mode = AppMode::Tree;
@@ -908,15 +913,15 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
         }
 
         // ── Tree mode ───────────────────────────────────────────────
+        if (state.mode == AppMode::Tree && is_char('q')) {
+            set_last_key("q");
+            clear_count(state);
+            if (on_command) on_command("q");
+            return true;
+        }
         if (state.mode == AppMode::Tree && !state.visible_nodes.empty()) {
             int max_idx = static_cast<int>(state.visible_nodes.size()) - 1;
 
-            if (event == Event::Character('q')) {
-                set_last_key("q");
-                clear_count(state);
-                if (on_command) on_command("q");
-                return true;
-            }
             if (event == Event::Character('l') && state.active_cwe) {
                 set_last_key("l");
                 clear_count(state);
@@ -1097,7 +1102,7 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
         }
 
         // : — enter command mode
-        if (event == Event::Character(':') &&
+        if (is_char(':') &&
             (state.mode == AppMode::Tree || state.mode == AppMode::Detail ||
              state.mode == AppMode::Notification)) {
             set_last_key(":");

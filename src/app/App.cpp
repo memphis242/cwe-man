@@ -83,6 +83,14 @@ void App::run() {
     // Provide a way for Layout to trigger sync and quit
     auto on_command = [&](const std::string& cmd) {
         auto input = trim_copy(cmd);
+
+        // Never block quit commands behind a pending confirmation state.
+        if (input == "q" || input == "quit") {
+            clear_runtime_confirm_pending_ = false;
+            screen.Exit();
+            return;
+        }
+
         if (clear_runtime_confirm_pending_) {
             if (input == "yes") {
                 int deleted = 0;
@@ -102,13 +110,13 @@ void App::run() {
                 state_.status_message = "clear-runtime canceled";
                 return;
             }
-            state_.status_message = "clear-runtime pending: type :yes or :no";
-            return;
+            // Do not trap unrelated commands behind confirmation.
+            clear_runtime_confirm_pending_ = false;
+            state_.status_message =
+                "clear-runtime confirmation canceled by new command";
         }
 
-        if (input == "q" || input == "quit") {
-            screen.Exit();
-        } else if (input == "sync") {
+        if (input == "sync") {
             start_sync(screen);
         } else if (input == "print-cwes" || input.starts_with("print-cwes ")) {
             std::string filename;
