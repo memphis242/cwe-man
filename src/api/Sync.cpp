@@ -219,7 +219,7 @@ void Sync::write_sync_timestamp() {
     auto now = std::chrono::system_clock::now();
     auto tt  = std::chrono::system_clock::to_time_t(now);
     char buf[32];
-    std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S", std::localtime(&tt));
+    std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", std::localtime(&tt));
     std::string ts = std::format("{} {}", buf, "CDT");
 
     std::ofstream f{path};
