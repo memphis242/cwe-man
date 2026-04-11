@@ -43,3 +43,8 @@ target_link_libraries(cwe-man PRIVATE
   ftxui::dom
   ftxui::component
 )
+
+install(TARGETS cwe-man
+  RUNTIME DESTINATION bin
+  CONFIGURATIONS Release
+)
