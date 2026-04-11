@@ -25,5 +25,13 @@ leetcode.c
 *.vim
 tags
 
+# Miscellaneous
+plan.md
+todo
+
 # Claude Code
 .claude/
+
+# Codex
+.codex
+.cache/
