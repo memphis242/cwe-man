@@ -6,8 +6,6 @@
 #include <cctype>
 #include <format>
 #include <memory>
-#include <sys/ioctl.h>
-#include <unistd.h>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/event.hpp>
@@ -471,66 +469,11 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                 body.push_back(text(" " + line));
             }
             if (body.empty()) body.push_back(text(" "));
-            Element popup_body = vbox(std::move(body)) | size(WIDTH, LESS_THAN, 120) | flex;
+            Element popup_body = vbox(std::move(body));
             Element popup = window(text(" " + state.popup_title + " ") | bold, popup_body);
-            if (state.popup_solid_bg) {
-                struct winsize ws{};
-                ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws);
-                int term_width = ws.ws_col > 0 ? ws.ws_col : 120;
-                int popup_width = std::clamp((term_width * 65) / 100, 50, std::max(50, term_width - 4));
-                int inner_width = std::max(20, popup_width - 2);
-                int popup_height = std::max(8, static_cast<int>(state.popup_lines.size()) + 4);
-
-                auto fit_line = [&](const std::string& s) {
-                    if (static_cast<int>(s.size()) >= inner_width) {
-                        return s.substr(0, static_cast<size_t>(inner_width));
-                    }
-                    return s + std::string(static_cast<size_t>(inner_width - s.size()), ' ');
-                };
-
-                Elements bg_lines;
-                for (int i = 0; i < popup_height; ++i) {
-                    bg_lines.push_back(
-                        text(std::string(static_cast<size_t>(popup_width), ' '))
-                        | bgcolor(Color::Black));
-                }
-
-                Elements fg_lines;
-                fg_lines.push_back(
-                    text(" " + fit_line(" " + state.popup_title))
-                    | color(Color::White) | bgcolor(Color::Black) | ftxui::bold);
-                fg_lines.push_back(
-                    text(std::string(static_cast<size_t>(popup_width), ' '))
-                    | bgcolor(Color::Black));
-
-                if (state.popup_lines.empty()) {
-                    fg_lines.push_back(
-                        text(" " + std::string(static_cast<size_t>(inner_width), ' '))
-                        | bgcolor(Color::Black));
-                } else {
-                    for (const auto& line : state.popup_lines) {
-                        fg_lines.push_back(
-                            text(" " + fit_line(" " + line))
-                            | color(Color::White) | bgcolor(Color::Black));
-                    }
-                }
-
-                while (static_cast<int>(fg_lines.size()) < popup_height) {
-                    fg_lines.push_back(
-                        text(std::string(static_cast<size_t>(popup_width), ' '))
-                        | bgcolor(Color::Black));
-                }
-
-                popup = dbox({
-                    vbox(std::move(bg_lines)),
-                    vbox(std::move(fg_lines)),
-                }) | size(WIDTH, EQUAL, popup_width)
-                  | size(HEIGHT, EQUAL, popup_height)
-                  | bgcolor(Color::Black);
-            }
             return dbox({
                 base,
-                vbox({filler(), hbox({filler(), popup | size(WIDTH, GREATER_THAN, 20), filler()}), filler()}),
+                popup | clear_under | center,
             });
         }
         return base;
