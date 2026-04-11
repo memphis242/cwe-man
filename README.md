@@ -134,6 +134,16 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release --target install -j
 ```
 
+## Quality Workflows
+
+```bash
+./scripts/run_tests.sh
+./scripts/run_coverage.sh
+./scripts/run_sanitizers.sh
+./scripts/run_static_analysis.sh
+./scripts/run_quality.sh
+```
+
 ## Developer Guide
 
 For architecture details, source-file mapping, and my engineering principles, see:

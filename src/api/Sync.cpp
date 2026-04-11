@@ -2,6 +2,7 @@
 #include "logging/Logger.hpp"
 
 #include <chrono>
+#include <cctype>
 #include <cstdlib>
 #include <ctime>
 #include <filesystem>
@@ -232,17 +233,33 @@ bool Sync::sync_needed(int max_age_days) {
     auto ts = read_sync_timestamp();
     if (ts.empty()) return true;
 
-    // Stored format: YYYY-MM-DDTHH:MM:SS TZ (e.g., CDT).
-    // Keep compatibility with older timestamps without a timezone suffix.
+    // Supported formats:
+    // - YYYY-MM-DD HH:MM:SS [TZ]
+    // - YYYY-MM-DDTHH:MM:SS [TZ]
     auto raw_ts = ts;
-    size_t space = raw_ts.find(' ');
-    if (space != std::string::npos) {
-        raw_ts = raw_ts.substr(0, space);
+
+    // Drop trailing timezone token if present (e.g., "CDT").
+    size_t last_space = raw_ts.rfind(' ');
+    if (last_space != std::string::npos) {
+        bool trailing_alpha = !raw_ts.empty();
+        for (size_t i = last_space + 1; i < raw_ts.size(); ++i) {
+            if (!std::isalpha(static_cast<unsigned char>(raw_ts[i]))) {
+                trailing_alpha = false;
+                break;
+            }
+        }
+        if (trailing_alpha) {
+            raw_ts = raw_ts.substr(0, last_space);
+        }
+    }
+
+    for (char& ch : raw_ts) {
+        if (ch == 'T') ch = ' ';
     }
 
     std::tm tm{};
     std::istringstream ss{raw_ts};
-    ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S");
+    ss >> std::get_time(&tm, "%Y-%m-%d %H:%M:%S");
     if (ss.fail()) return true;
 
     auto last_sync = std::chrono::system_clock::from_time_t(std::mktime(&tm));

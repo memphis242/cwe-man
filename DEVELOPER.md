@@ -210,9 +210,9 @@ Main Components:
 
 `cwe-man` follows these directive documents as the canonical standard for engineering quality and performance priorities:
 
-- [SOFTWARE-QA-DIRECTIVES.md](./SOFTWARE-QA-DIRECTIVES.md)
-- [PERFORMANCE-DIRECTIVES.md](./PERFORMANCE-DIRECTIVES.md)
-- [SECURITY-PLAN.md](./SECURITY-PLAN.md)
+- [SOFTWARE-QA-DIRECTIVES.md](./docs/SOFTWARE-QA-DIRECTIVES.md)
+- [PERFORMANCE-DIRECTIVES.md](./docs/PERFORMANCE-DIRECTIVES.md)
+- [SECURITY-PLAN.md](./docs/SECURITY-PLAN.md)
 
 Core directive themes:
 - Robustness and correctness first: assertions, strict warnings, static analysis, sanitizer usage, and broad behavioral coverage.
