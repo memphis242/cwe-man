@@ -168,6 +168,7 @@ if(CWE_MAN_ENABLE_TESTS)
   add_executable(cwe-man-test-database
     tests/test_main.cpp
     tests/data_database_test.cpp
+    tests/logging_filesink_test.cpp
     src/data/Database.cpp
     src/logging/Logger.cpp
     src/logging/FileSink.cpp
