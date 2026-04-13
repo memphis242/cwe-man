@@ -108,7 +108,7 @@ endfunction()
 
 function(cwe_man_apply_coverage target_name)
   if(CWE_MAN_ENABLE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(${target_name} PRIVATE -O0 -g --coverage)
+    target_compile_options(${target_name} PRIVATE -Og -g3 --coverage)
     target_link_options(${target_name} PRIVATE --coverage)
   endif()
 endfunction()
