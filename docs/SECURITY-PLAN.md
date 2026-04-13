@@ -34,3 +34,6 @@ This document defines security hardening for `cwe-man` as a networked TUI client
 - Validate and constrain user inputs/commands and file output paths.
 - Keep runtime data under `$HOME/.cwe-man` and avoid unintended writes outside expected locations.
 - Ensure fault simulation and testing modes cannot damage host system state.
+
+## 6) Dependency Scans
+- Regular scans of dependency libraries for security vulnerabilities should be done>
