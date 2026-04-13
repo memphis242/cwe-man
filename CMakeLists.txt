@@ -181,6 +181,20 @@ if(CWE_MAN_ENABLE_TESTS)
   cwe_man_apply_coverage(cwe-man-test-database)
 
   add_test(NAME cwe-man-test-database COMMAND cwe-man-test-database)
+
+  add_executable(cwe-man-test-logger-probe
+    tests/logger_coverage_probe.cpp
+    src/logging/Logger.cpp
+    src/logging/FileSink.cpp
+  )
+  target_include_directories(cwe-man-test-logger-probe PRIVATE src)
+  cwe_man_apply_warnings(cwe-man-test-logger-probe)
+  cwe_man_apply_coverage(cwe-man-test-logger-probe)
+
+  add_test(NAME cwe-man-test-logger-home-set
+           COMMAND cwe-man-test-logger-probe --set-home)
+  add_test(NAME cwe-man-test-logger-home-unset
+           COMMAND cwe-man-test-logger-probe --unset-home)
 endif()
 
 install(TARGETS cwe-man

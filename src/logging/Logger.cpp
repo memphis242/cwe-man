@@ -20,7 +20,7 @@ std::filesystem::path log_directory() {
 } // namespace
 
 Logger& Logger::instance() {
-    static Logger logger;
+    static Logger logger;  // GCOVR_EXCL_BR_LINE
     return logger;
 }
 
