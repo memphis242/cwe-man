@@ -7,6 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(CWE_MAN_ENABLE_TESTS "Build unit tests" OFF)
+option(CWE_MAN_ENABLE_COVERAGE "Enable coverage instrumentation" OFF)
 option(CWE_MAN_FETCH_DEPS "Allow fetching dependencies via FetchContent" ON)
 option(CWE_MAN_FETCH_TEST_DEPS "Allow fetching test dependencies" OFF)
 
@@ -105,6 +106,13 @@ function(cwe_man_apply_warnings target_name)
   )
 endfunction()
 
+function(cwe_man_apply_coverage target_name)
+  if(CWE_MAN_ENABLE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(${target_name} PRIVATE -O0 -g --coverage)
+    target_link_options(${target_name} PRIVATE --coverage)
+  endif()
+endfunction()
+
 add_executable(cwe-man
   src/main.cpp
   src/app/App.cpp
@@ -131,6 +139,7 @@ target_link_libraries(cwe-man PRIVATE
   ftxui::component
 )
 cwe_man_apply_warnings(cwe-man)
+cwe_man_apply_coverage(cwe-man)
 
 if(CWE_MAN_ENABLE_TESTS)
   include(CTest)
@@ -169,6 +178,7 @@ if(CWE_MAN_ENABLE_TESTS)
     GTest::gtest
   )
   cwe_man_apply_warnings(cwe-man-test-database)
+  cwe_man_apply_coverage(cwe-man-test-database)
 
   add_test(NAME cwe-man-test-database COMMAND cwe-man-test-database)
 endif()

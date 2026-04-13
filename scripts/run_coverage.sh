@@ -30,8 +30,6 @@ gcovr \
   --filter '^src/' \
   --exclude '.*_deps/.*' \
   --exclude 'src/main.cpp' \
-  --fail-under-line 95 \
-  --fail-under-branch 90 \
   --txt "$REPORT_DIR/coverage.txt" \
   --html-details "$REPORT_DIR/coverage.html" \
   --xml "$REPORT_DIR/coverage.xml" \

@@ -1,6 +1,7 @@
 # General build artifacts
 build*/
 benchmarks/
+coverage/
 *.exe
 *.o
 *.lst

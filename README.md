@@ -157,6 +157,17 @@ If GoogleTest is not installed system-wide, you can allow CMake to fetch it:
 cmake -S . -B build-test -DCMAKE_BUILD_TYPE=Debug -DCWE_MAN_ENABLE_TESTS=ON -DCWE_MAN_FETCH_TEST_DEPS=ON
 ```
 
+### Coverage Metrics
+```bash
+./scripts/run_coverage.sh
+```
+
+This generates `gcovr` reports in `./coverage/`:
+- `coverage.txt`
+- `coverage.html`
+- `coverage.xml`
+- `coverage.json`
+
 ## Quality Workflows
 
 ```bash
