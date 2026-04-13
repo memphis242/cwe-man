@@ -82,12 +82,6 @@ std::pair<size_t, size_t> find_pattern_match(const std::string& pattern,
     return {std::string::npos, 0};
 }
 
-bool icontains(const std::string& haystack, const std::string& needle) {
-    if (needle.empty()) return true;
-    auto [pos, len] = find_pattern_match(needle, haystack, false);
-    return pos != std::string::npos;
-}
-
 int consume_count(AppState& state) {
     if (!state.count_pending || state.count_value <= 0) {
         state.count_pending = false;
@@ -122,8 +116,8 @@ std::string notif_severity_label(NotificationSeverity sev) {
         case NotificationSeverity::Warning: return "WARN";
         case NotificationSeverity::Error: return "ERROR";
         case NotificationSeverity::Critical: return "CRIT";
+        default: return "INFO";
     }
-    return "INFO";
 }
 
 void update_search_matches(AppState& state) {
@@ -215,7 +209,7 @@ void jump_to_prev_match(AppState& state) {
     }
 }
 
-void update_filter_matches(AppState& state, Repository& repo) {
+void update_filter_matches(AppState& state) {
     state.filter_matches.clear();
     if (state.filter_query.empty()) {
         // When filter is empty, show all CWEs
@@ -436,6 +430,7 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                 case AppMode::Command: mode_str = "COMMAND"; break;
                 case AppMode::Search:  mode_str = "SEARCH"; break;
                 case AppMode::Filter:  mode_str = "FILTER"; break;
+                default: mode_str = "TREE"; break;
             }
             std::string extra;
             if (!state.search_matches.empty() &&
@@ -559,7 +554,7 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                     state.filter_matches.clear();
                     state.filter_active = true;
                     state.filter_navigation_active = false;
-                    update_filter_matches(state, repo);
+                    update_filter_matches(state);
                     return true;
                 }
                 state.search_query += event.character();
@@ -616,7 +611,7 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                 clear_count(state);
                 if (!state.filter_navigation_active && !state.filter_query.empty()) {
                     state.filter_query.pop_back();
-                    update_filter_matches(state, repo);
+                    update_filter_matches(state);
                 }
                 return true;
             }
@@ -706,7 +701,7 @@ ftxui::Component RootLayout(AppState& state, Repository& repo,
                 }
                 state.filter_query += event.character();
                 set_last_key(event.character());
-                update_filter_matches(state, repo);
+                update_filter_matches(state);
                 return true;
             }
             return true;

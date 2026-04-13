@@ -134,6 +134,29 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release --target install -j
 ```
 
+### Compiler-Specific Builds (GCC/Clang)
+```bash
+cmake -S . -B build-gcc -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++
+cmake --build build-gcc -j
+
+cmake -S . -B build-clang -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++
+cmake --build build-clang -j
+```
+
+`cwe-man` enforces standard C++20 (`CMAKE_CXX_EXTENSIONS=OFF`), always enables strict GCC/Clang warnings, and applies `-Werror` in `Release` builds (not `Debug`).
+
+### Unit Tests (Database Module)
+```bash
+cmake -S . -B build-test -DCMAKE_BUILD_TYPE=Debug -DCWE_MAN_ENABLE_TESTS=ON
+cmake --build build-test -j
+ctest --test-dir build-test --output-on-failure
+```
+
+If GoogleTest is not installed system-wide, you can allow CMake to fetch it:
+```bash
+cmake -S . -B build-test -DCMAKE_BUILD_TYPE=Debug -DCWE_MAN_ENABLE_TESTS=ON -DCWE_MAN_FETCH_TEST_DEPS=ON
+```
+
 ## Quality Workflows
 
 ```bash

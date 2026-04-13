@@ -319,6 +319,7 @@ void Repository::insert_notification(const Notification& n) {
         case NotificationSeverity::Warning:  severity_str = "Warning"; break;
         case NotificationSeverity::Error:    severity_str = "Error"; break;
         case NotificationSeverity::Critical: severity_str = "Critical"; break;
+        default:                             severity_str = "Info"; break;
     }
 
     auto stmt = db_.prepare(
