@@ -183,19 +183,29 @@ if(CWE_MAN_ENABLE_TESTS)
 
   add_test(NAME cwe-man-test-database COMMAND cwe-man-test-database)
 
-  add_executable(cwe-man-test-logger-probe
-    tests/logger_coverage_probe.cpp
+  add_executable(cwe-man-test-logger
+    tests/test_main.cpp
+    tests/logger_test.cpp
     src/logging/Logger.cpp
     src/logging/FileSink.cpp
   )
-  target_include_directories(cwe-man-test-logger-probe PRIVATE src)
-  cwe_man_apply_warnings(cwe-man-test-logger-probe)
-  cwe_man_apply_coverage(cwe-man-test-logger-probe)
+  target_include_directories(cwe-man-test-logger PRIVATE src)
+  target_link_libraries(cwe-man-test-logger PRIVATE GTest::gtest)
+  cwe_man_apply_warnings(cwe-man-test-logger)
+  cwe_man_apply_coverage(cwe-man-test-logger)
+  add_test(NAME cwe-man-test-logger COMMAND cwe-man-test-logger)
 
-  add_test(NAME cwe-man-test-logger-home-set
-           COMMAND cwe-man-test-logger-probe --set-home)
-  add_test(NAME cwe-man-test-logger-home-unset
-           COMMAND cwe-man-test-logger-probe --unset-home)
+  add_executable(cwe-man-test-logger-nohome
+    tests/test_main.cpp
+    tests/logger_no_home_test.cpp
+    src/logging/Logger.cpp
+    src/logging/FileSink.cpp
+  )
+  target_include_directories(cwe-man-test-logger-nohome PRIVATE src)
+  target_link_libraries(cwe-man-test-logger-nohome PRIVATE GTest::gtest)
+  cwe_man_apply_warnings(cwe-man-test-logger-nohome)
+  cwe_man_apply_coverage(cwe-man-test-logger-nohome)
+  add_test(NAME cwe-man-test-logger-nohome COMMAND cwe-man-test-logger-nohome)
 endif()
 
 install(TARGETS cwe-man
