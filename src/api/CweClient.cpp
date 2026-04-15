@@ -15,12 +15,12 @@ struct CurlGlobalInit {
 };
 
 // Ensures curl_global_init is called exactly once, before any CURL handle.
-CurlGlobalInit& ensure_curl_init() {
+static CurlGlobalInit& ensure_curl_init() {
     static CurlGlobalInit instance;
     return instance;
 }
 
-size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userdata) {
+static size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userdata) {
     auto* response = static_cast<std::string*>(userdata);
     response->append(ptr, size * nmemb);
     return size * nmemb;
