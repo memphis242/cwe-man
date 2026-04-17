@@ -30,7 +30,7 @@ public:
 
 private:
     std::string get(const std::string& path);
-    void* curl_{nullptr};  // CURL* — forward-declared to avoid leaking curl.h
+    void *curl_ = nullptr;  // CURL* — forward-declared to avoid leaking curl.h
 };
 
 } // namespace cweman

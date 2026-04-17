@@ -32,6 +32,7 @@ mkdir -p "$REPORT_DIR"
 gcovr \
   --root . \
   --object-directory "$BUILD_DIR" \
+  --merge-mode-functions separate \
   --gcov-exclude-directories '.*CMakeFiles/cwe-man\.dir.*' \
   --gcov-ignore-errors output_error \
   --gcov-ignore-errors no_working_dir_found \

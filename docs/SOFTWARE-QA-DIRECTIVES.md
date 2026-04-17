@@ -9,6 +9,9 @@
 - linting against Google's C++ coding guidelines (e.g., clang-tidy)
 - unit tests + multiple sanitizers, striving for good _behavioral_ coverage _in addition to_ max possible [MC/DC](https://en.wikipedia.org/wiki/Modified_condition/decision_coverage) coverage
   - no "coverage probing"!!! (i.e., calling a module's functions without any assertions, just to meet coverage metrics)
+  - do not modify private members of a module in order to meet coverage or test; the module is a black box, and whatever edge cases aren't caught can be reasoned about rationally
+  - chasing the coverage metric should not be the highest priority - this leads to bad behaviors and anti-patterns; instead, test your unit against meaningful behavioral expectations.
+  - even if we have 100% line/branch/condition coverage for a function, but there is input we want to make sure it handles, we should add unit tests for those extra cases, even without the coverage metric benefit
 - integration tests (nominal/chaos monkey) /w test frameworks (e.g., `TUI Test` for TUI apps)
 - builds for multiple platforms (Linux, Windows, MacOS) - no platform-specific behavior (e.g., `_GNU_SOURCE` or GNU variants of compilers)
 - internal function fuzzing

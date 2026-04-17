@@ -31,10 +31,18 @@ std::string timestamp_string() {
 } // namespace
 
 FileSink::FileSink(const std::filesystem::path& log_dir)
+    : FileSink(log_dir, today_string, timestamp_string)
+{}
+
+FileSink::FileSink(const std::filesystem::path& log_dir,
+                   DateProvider date_provider,
+                   TimestampProvider timestamp_provider)
     : log_dir_{log_dir}
+    , date_provider_{std::move(date_provider)}
+    , timestamp_provider_{std::move(timestamp_provider)}
 {
     std::filesystem::create_directories(log_dir_);
-    current_date_ = today_string();
+    current_date_ = date_provider_();
     stream_.open(log_path_for_today(), std::ios::app);
 }
 
@@ -48,13 +56,13 @@ void FileSink::write(std::string_view level, std::string_view message) {
     std::lock_guard lock{mutex_};
     rotate_if_needed();
     if (stream_.is_open()) {
-        stream_ << timestamp_string() << " [" << level << "] " << message << '\n';
+        stream_ << timestamp_provider_() << " [" << level << "] " << message << '\n';
         stream_.flush();
     }
 }
 
 void FileSink::rotate_if_needed() {
-    auto today = today_string();
+    auto today = date_provider_();
     if (today != current_date_) {
         stream_.close();
         current_date_ = today;

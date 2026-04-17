@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -10,7 +11,13 @@ namespace cweman {
 
 class FileSink {
 public:
+    using DateProvider = std::function<std::string()>;
+    using TimestampProvider = std::function<std::string()>;
+
     explicit FileSink(const std::filesystem::path& log_dir);
+    FileSink(const std::filesystem::path& log_dir,
+             DateProvider date_provider,
+             TimestampProvider timestamp_provider);
     ~FileSink();
 
     FileSink(const FileSink&) = delete;
@@ -26,6 +33,8 @@ private:
     std::string           current_date_;
     std::ofstream         stream_;
     std::mutex            mutex_;
+    DateProvider          date_provider_;
+    TimestampProvider     timestamp_provider_;
 };
 
 } // namespace cweman
